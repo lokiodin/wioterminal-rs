@@ -1,0 +1,15 @@
+[package]
+name = "menu"
+version = "0.3.2"
+authors = ["Jonathan 'theJPster' Pallant <github@thejpster.org.uk>"]
+description = "A simple #[no_std] command line interface."
+license = "MIT OR Apache-2.0"
+edition = "2018"
+repository = "https://github.com/thejpster/menu"
+readme = "README.md"
+
+[dependencies]
+
+
+[dev-dependencies]
+pancurses = "0.16"

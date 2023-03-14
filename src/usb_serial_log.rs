@@ -1,0 +1,135 @@
+//! implementation of `log`
+use log::{Level, LevelFilter, Metadata, Record, SetLoggerError};
+
+use core::sync::atomic;
+
+use crate::{cli, serial_write, usb_serial};
+
+struct UsbSerialLogger {
+    enabled_level: atomic::AtomicUsize,
+}
+
+static LOGGER: UsbSerialLogger = UsbSerialLogger::new();
+
+impl UsbSerialLogger {
+    const fn new() -> Self {
+        Self {
+            // 0 is not a valid log level, but can't seem to initialize here for some reason, so do it later in `init`
+            enabled_level: atomic::AtomicUsize::new(0),
+        }
+    }
+
+    fn set_level(&self, new_level: Level) {
+        self.enabled_level
+            .store(new_level as usize, atomic::Ordering::Release);
+    }
+
+    fn get_level(&self) -> Level {
+        let level = self.enabled_level.load(atomic::Ordering::Acquire);
+
+        // I hate this, but `log` doesn't expose it's `from_usize` method
+        if level == Level::Error as usize {
+            Level::Error
+        } else if level == Level::Warn as usize {
+            Level::Warn
+        } else if level == Level::Info as usize {
+            Level::Info
+        } else if level == Level::Debug as usize {
+            Level::Debug
+        } else if level == Level::Trace as usize {
+            Level::Trace
+        } else {
+            panic!("impossible log level: {}", level);
+        }
+    }
+}
+
+impl log::Log for UsbSerialLogger {
+    fn enabled(&self, metadata: &Metadata) -> bool {
+        metadata.level() as usize <= self.enabled_level.load(atomic::Ordering::Acquire)
+    }
+
+    fn log(&self, record: &Record) {
+        if self.enabled(record.metadata()) {
+            let level = record.level();
+            if level == Level::Info {
+                // leave INFO prefix off for expected normal output
+                usb_serial::get(|_| serial_write!("{}\n", record.args()));
+            } else {
+                usb_serial::get(|_| serial_write!("{}: {}\n", record.level(), record.args()));
+            }
+        }
+    }
+
+    fn flush(&self) {}
+}
+
+/// Initializes the USB serial based logger.
+///
+/// # Errors
+/// If the underlying logger has already been initialized.
+pub fn init() -> Result<(), SetLoggerError> {
+    #[cfg(debug_assertions)]
+    const LEVEL: Level = Level::Debug;
+    #[cfg(not(debug_assertions))]
+    const LEVEL: Level = Level::Info;
+
+    #[cfg(debug_assertions)]
+    let max_level = LevelFilter::Trace;
+    #[cfg(not(debug_assertions))]
+    let max_level = LevelFilter::Debug;
+
+    LOGGER.set_level(LEVEL);
+    cortex_m::interrupt::free(|_| unsafe {
+        log::set_logger_racy(&LOGGER).map(|()| log::set_max_level(max_level))
+    })
+}
+
+fn log_control<const N: usize>(
+    _menu: &menu::Menu<cli::Output<N>>,
+    item: &menu::Item<cli::Output<N>>,
+    args: &[&str],
+    context: &mut cli::Output<N>,
+) {
+    use core::fmt::Write;
+
+    let mut handled = false;
+    if let Ok(Some(level)) = menu::argument_finder(item, args, cli::cli_types::ARG_LEVEL_SET) {
+        use core::str::FromStr;
+
+        if let Ok(level) = Level::from_str(level) {
+            LOGGER.set_level(level);
+            handled = true;
+        } else {
+            writeln!(context, "failed to parse '{}'", level).unwrap();
+        }
+    }
+    if let Ok(Some(_)) = menu::argument_finder(item, args, cli::cli_types::ARG_LEVEL_GET) {
+        writeln!(context, "level: {}\n", LOGGER.get_level().as_str()).unwrap();
+        handled = true;
+    }
+
+    if !handled {
+        writeln!(context, "invalid usage").unwrap();
+    }
+}
+
+/// Method to put our CLI entry in
+pub const LOG_CLI_ITEM: cli::Item = cli::Item {
+    item_type: menu::ItemType::Callback {
+        function: log_control,
+        parameters: &[
+            menu::Parameter::NamedValue {
+                parameter_name: cli::cli_types::ARG_LEVEL_SET,
+                argument_name: cli::cli_types::ARG_LEVEL_SET,
+                help: Some("sets our log level"),
+            },
+            menu::Parameter::Named {
+                parameter_name: cli::cli_types::ARG_LEVEL_GET,
+                help: Some("gets our log level"),
+            },
+        ],
+    },
+    command: cli::cli_types::CMD_LOG,
+    help: Some("Controls how our log functions"),
+};

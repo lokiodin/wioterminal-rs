@@ -1,0 +1,48 @@
+[package]
+name = "wioterminal"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+# for cargo flash
+[package.metadata]
+chip = "ATSAMD51P19A"
+
+[dependencies]
+cortex-m = "0.7.7"
+embedded-graphics = "0.7.1"
+heapless = {version = "0.5.6", features = ["ufmt-impl"]}
+log = "0.4.17"
+menu = {path = "./menu"} # from https://github.com/rcarlsson/menu which resolve some issues
+# panic-halt = "0.2.0"
+panic-persist = "0.3.0"
+seeed-erpc = "0.1.1"
+# typenum = {version = "1.15.0"}
+usb-device = "0.2.9"
+usbd-serial = "0.1.1"
+# wio_terminal = {version = "0.6.1", features = ["wifi"]}
+wio_terminal = { git = "https://github.com/atsamd-rs/atsamd/" }
+generic-array = { version = "0.14" }
+
+# this lets you use `cargo fix`!
+[[bin]]
+name = "wioterminal"
+test = false
+bench = false
+
+[dev-dependencies]
+usbd-serial = "0.1.1"
+embedded-graphics = "0.7.1"
+panic-halt = "0.2"
+
+[profile.dev]
+incremental = false
+codegen-units = 1
+debug = true
+lto = true
+
+[profile.release]
+opt-level = "s"
+codegen-units = 1 # better optimizations
+debug = true # symbols are nice and they don't increase the size on Flash
+lto = true # better optimizations
